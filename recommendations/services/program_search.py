@@ -194,6 +194,26 @@ def search_programme_from_vendor(course):
     )
 
 
+def search_programme_from_demo(programme):
+    return SearchProgramme(
+        program_name=programme.program_name,
+        provider=programme.provider,
+        degree_type=programme.degree_type,
+        duration=programme.duration,
+        fee_range=programme.fee_range,
+        min_fee=programme.min_fee,
+        max_fee=programme.max_fee,
+        mode=programme.mode,
+        career_tags=programme.career_tags or [],
+        background_tags=programme.background_tags or [],
+        degree_tags=programme.degree_tags or [],
+        duration_years=programme.duration_years,
+        description=programme.description,
+        source="demo_programme",
+        source_id=programme.id,
+    )
+
+
 def search_programme_from_university(university):
     text = " ".join(
         [
@@ -332,8 +352,46 @@ def extract_query_context(query, profile=None):
     }
 
 
-def deepseek_is_configured():
-    return bool(getattr(settings, "DEEPSEEK_API_KEY", ""))
+def openai_is_configured():
+    return bool(getattr(settings, "OPENAI_API_KEY", ""))
+
+
+def call_openai_json(system_prompt, prompt, timeout=20):
+    body = json.dumps(
+        {
+            "model": getattr(settings, "OPENAI_MODEL", "gpt-4.1-mini"),
+            "temperature": 0.1,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(prompt, ensure_ascii=True),
+                },
+            ],
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        getattr(settings, "OPENAI_API_URL", "https://api.openai.com/v1/chat/completions"),
+        data=body,
+        headers={
+            "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    content = payload["choices"][0]["message"]["content"].strip()
+    if content.startswith("```"):
+        content = content.strip("`")
+        content = content.replace("json\n", "", 1).strip()
+    return json.loads(content)
 
 
 def keyword_payload_from_context(context):
@@ -353,16 +411,16 @@ def keyword_payload_from_context(context):
     return unique([normalize(keyword) for keyword in keywords])[:12]
 
 
-def extract_deepseek_keywords(query, profile=None):
+def extract_openai_keywords(query, profile=None):
     context = extract_query_context(query, profile=profile)
     fallback_keywords = keyword_payload_from_context(context)
 
-    if not deepseek_is_configured():
+    if not openai_is_configured():
         return {
             "keywords": fallback_keywords,
             "source": "deterministic",
             "context": context,
-            "message": "DEEPSEEK_API_KEY is not configured; deterministic keywords were used.",
+            "message": "OPENAI_API_KEY is not configured; deterministic keywords were used.",
         }
 
     prompt = {
@@ -390,42 +448,18 @@ def extract_deepseek_keywords(query, profile=None):
             "mode": "Online|Distance|Regular|",
         },
     }
-    body = json.dumps(
-        {
-            "model": getattr(settings, "DEEPSEEK_MODEL", "deepseek-chat"),
-            "temperature": 0.1,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You extract search keywords for an Indian course recommendation database.",
-                },
-                {"role": "user", "content": json.dumps(prompt, ensure_ascii=True)},
-            ],
-        }
-    ).encode("utf-8")
-    request = urllib.request.Request(
-        getattr(settings, "DEEPSEEK_API_URL", "https://api.deepseek.com/chat/completions"),
-        data=body,
-        headers={
-            "Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-        content = payload["choices"][0]["message"]["content"]
-        parsed = json.loads(content)
+        parsed = call_openai_json(
+            "You extract search keywords for an Indian course recommendation database. Return JSON only.",
+            prompt,
+        )
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
         return {
             "keywords": fallback_keywords,
             "source": "deterministic",
             "context": context,
             "error": str(exc),
-            "message": "DeepSeek keyword extraction failed; deterministic keywords were used.",
+            "message": "OpenAI keyword extraction failed; deterministic keywords were used.",
         }
 
     raw_keywords = parsed.get("keywords", [])
@@ -443,7 +477,7 @@ def extract_deepseek_keywords(query, profile=None):
 
     return {
         "keywords": keywords,
-        "source": "deepseek" if keywords else "deterministic",
+        "source": "openai" if keywords else "deterministic",
         "context": context,
         "message": "",
     }

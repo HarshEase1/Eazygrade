@@ -9,7 +9,7 @@ from institutions.models import UGCDEBProgramme
 from recommendations.models import RankedCourseRecommendation, RecommendationRun
 from recommendations.services.ai_explainer import (
     build_ai_style_explanation,
-    call_deepseek_for_scores,
+    call_openai_for_scores,
 )
 from recommendations.services.course_filter import filter_programme_for_candidate
 from recommendations.services.eligibility_engine import check_programme_eligibility
@@ -232,7 +232,7 @@ def run_recommendation_pipeline(profile, user, limit=40, force=False):
             score = score_programme(profile, programme, eligibility, filtered_item)
             scored.append((programme, eligibility, filtered_item, score))
 
-        llm_score_map, llm_metadata = call_deepseek_for_scores(profile, scored)
+        llm_score_map, llm_metadata = call_openai_for_scores(profile, scored)
         if llm_score_map:
             rescored = []
             for programme, eligibility, filtered_item, _score in scored:

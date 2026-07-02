@@ -42,6 +42,24 @@ def extract_google_client_id(payload):
     )
 
 
+def env_bool(key, default=False):
+    value = os.environ.get(key)
+
+    if value is None:
+        return default
+
+    return value.lower() in ['1', 'true', 'yes', 'on']
+
+
+def env_list(key, default=None):
+    value = os.environ.get(key, '')
+
+    if not value:
+        return default or []
+
+    return [item.strip() for item in value.split(',') if item.strip()]
+
+
 def load_google_client_id_from_json():
     explicit_path = os.environ.get('GOOGLE_OAUTH_CLIENT_JSON', '')
 
@@ -70,12 +88,23 @@ load_env_file(BASE_DIR.parent / '.env')
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-6s-xvtzo^d$bawxi*0m@1_@t$&@7d$lf)^xi0tgd1z^w!pokn('
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY',
+    'django-insecure-6s-xvtzo^d$bawxi*0m@1_@t$&@7d$lf)^xi0tgd1z^w!pokn(',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = env_bool('DEBUG', True)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = env_list('ALLOWED_HOSTS')
+CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS')
+
+SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', not DEBUG)
+SESSION_COOKIE_SECURE = env_bool('SESSION_COOKIE_SECURE', not DEBUG)
+CSRF_COOKIE_SECURE = env_bool('CSRF_COOKIE_SECURE', not DEBUG)
+SECURE_HSTS_SECONDS = int(os.environ.get('SECURE_HSTS_SECONDS', '0' if DEBUG else '31536000'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', not DEBUG)
+SECURE_HSTS_PRELOAD = env_bool('SECURE_HSTS_PRELOAD', False)
 
 
 # Application definition
@@ -134,11 +163,11 @@ WSGI_APPLICATION = 'proot.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'EazyGrade',
-        'USER': 'harshtripathi',
-        'PASSWORD': 'FunnyFun@992',
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.environ.get('DB_NAME', 'EazyGrade'),
+        'USER': os.environ.get('DB_USER', 'harshtripathi'),
+        'PASSWORD': os.environ.get('DB_PASSWORD', 'FunnyFun@992'),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '5432'),
     }
 }
 
@@ -217,12 +246,12 @@ GOOGLE_OAUTH_CLIENT_ID = (
     os.environ.get('GOOGLE_OAUTH_CLIENT_ID', '') or load_google_client_id_from_json()
 )
 
-DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY', '')
-DEEPSEEK_API_URL = os.environ.get(
-    'DEEPSEEK_API_URL',
-    'https://api.deepseek.com/chat/completions',
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+OPENAI_API_URL = os.environ.get(
+    'OPENAI_API_URL',
+    'https://api.openai.com/v1/chat/completions',
 )
-DEEPSEEK_MODEL = os.environ.get('DEEPSEEK_MODEL', 'deepseek-chat')
+OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-4.1-mini')
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [

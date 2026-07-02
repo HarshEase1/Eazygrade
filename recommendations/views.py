@@ -8,11 +8,13 @@ from rest_framework.response import Response
 from accounts.authentication import CookieJWTAuthentication
 from accounts.models import CandidateProfile
 from institutions.models import UGCDEBProgramme
+from recommendations.models import DemoProgramme
 from recommendations.serializers import RecommendationRunSerializer
 from recommendations.services.eligibility_engine import check_programme_eligibility
 from recommendations.services.program_search import (
-    extract_deepseek_keywords,
+    extract_openai_keywords,
     rank_programmes,
+    search_programme_from_demo,
     search_programme_from_ugc,
     search_programme_from_vendor,
 )
@@ -27,6 +29,20 @@ def get_or_create_candidate_profile(user):
 
 def normalize_for_matching(value):
     return str(value or "").strip().lower()
+
+
+def diversify_programme_results(results, per_programme_limit=3):
+    seen_counts = {}
+    diversified = []
+
+    for result in results:
+        key = normalize_for_matching(result.get("program_name"))
+        seen_counts[key] = seen_counts.get(key, 0) + 1
+
+        if seen_counts[key] <= per_programme_limit:
+            diversified.append(result)
+
+    return diversified
 
 
 def candidate_default_search_terms(profile):
@@ -311,7 +327,7 @@ def public_program_search(request):
         else:
             profile_message = "Profile context unavailable. Continuing with your query only."
 
-    keyword_payload = extract_deepseek_keywords(query, profile=profile)
+    keyword_payload = extract_openai_keywords(query, profile=profile)
     search_keywords = keyword_payload.get("keywords", [])
     degree_type = normalize_for_matching(filters.get("degree_type"))
     mode = normalize_for_matching(filters.get("mode"))
@@ -319,20 +335,25 @@ def public_program_search(request):
 
     ugc_queryset = UGCDEBProgramme.objects.filter(is_active=True)
     vendor_queryset = VendorCourse.objects.select_related("vendor").all()
+    demo_queryset = DemoProgramme.objects.filter(is_active=True)
 
     if degree_type:
         ugc_queryset = ugc_queryset.filter(level__icontains=degree_type)
         vendor_queryset = vendor_queryset.filter(level__icontains=degree_type)
+        demo_queryset = demo_queryset.filter(degree_type__iexact=degree_type)
     if mode:
         ugc_queryset = ugc_queryset.filter(mode__icontains=mode)
         vendor_queryset = vendor_queryset.filter(mode__icontains=mode)
+        demo_queryset = demo_queryset.filter(mode__icontains=mode)
     if provider:
         ugc_queryset = ugc_queryset.filter(hei_name__icontains=provider)
         vendor_queryset = vendor_queryset.filter(vendor__name__icontains=provider)
+        demo_queryset = demo_queryset.filter(provider__icontains=provider)
 
     if search_keywords:
         ugc_keyword_query = Q()
         vendor_keyword_query = Q()
+        demo_keyword_query = Q()
 
         for keyword in search_keywords:
             ugc_keyword_query |= Q(program_name__icontains=keyword)
@@ -354,13 +375,24 @@ def public_program_search(request):
             vendor_keyword_query |= Q(subjects__icontains=keyword)
             vendor_keyword_query |= Q(syllabus__icontains=keyword)
             vendor_keyword_query |= Q(ideal_student__icontains=keyword)
+            demo_keyword_query |= Q(program_name__icontains=keyword)
+            demo_keyword_query |= Q(provider__icontains=keyword)
+            demo_keyword_query |= Q(degree_type__icontains=keyword)
+            demo_keyword_query |= Q(mode__icontains=keyword)
+            demo_keyword_query |= Q(career_tags__icontains=keyword)
+            demo_keyword_query |= Q(background_tags__icontains=keyword)
+            demo_keyword_query |= Q(degree_tags__icontains=keyword)
+            demo_keyword_query |= Q(description__icontains=keyword)
 
         ugc_queryset = ugc_queryset.filter(ugc_keyword_query)
         vendor_queryset = vendor_queryset.filter(vendor_keyword_query)
+        demo_queryset = demo_queryset.filter(demo_keyword_query)
 
     ugc_programmes = list(ugc_queryset.order_by("-year", "program_name", "hei_name")[:100])
     vendor_programmes = list(vendor_queryset.order_by("title", "vendor__name")[:100])
+    demo_programmes = list(demo_queryset.order_by("program_name", "provider")[:100])
     programmes = [
+        *[search_programme_from_demo(programme) for programme in demo_programmes],
         *[search_programme_from_ugc(programme) for programme in ugc_programmes],
         *[search_programme_from_vendor(course) for course in vendor_programmes],
     ]
@@ -371,7 +403,7 @@ def public_program_search(request):
     if strong_results:
         results = strong_results
 
-    results = results[:30]
+    results = diversify_programme_results(results)[:10]
 
     return Response(
         {
@@ -381,6 +413,12 @@ def public_program_search(request):
             "search_keywords": search_keywords,
             "keyword_source": keyword_payload.get("source", "deterministic"),
             "keyword_message": keyword_payload.get("message", ""),
+            "hallucination_guard": {
+                "enabled": True,
+                "rule": "Results are ranked only from seeded demo, UGC-DEB, and vendor records returned by the database.",
+                "allowed_sources": ["demo_programme", "ugc_deb", "vendor_course"],
+            },
+            "matching_method": "OpenAI keyword extraction when configured, deterministic intent scoring, and database-only ranked results.",
             "count": len(results),
             "results": results,
         }

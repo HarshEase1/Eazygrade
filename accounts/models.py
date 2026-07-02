@@ -228,6 +228,7 @@ class CandidateProfile(models.Model):
 
         academic_complete = False
         subject_complete = False
+        work_complete = False
 
         if self.pk:
             primary_record = (
@@ -257,7 +258,52 @@ class CandidateProfile(models.Model):
 
                 subject_complete = valid_subject_count >= 5
 
-        complete_values = profile_values + [academic_complete, subject_complete]
+            if self.current_activity_type in [
+                CurrentActivityType.EMPLOYED,
+                CurrentActivityType.SELF_EMPLOYED,
+                CurrentActivityType.FREELANCER,
+                CurrentActivityType.BUSINESS_OWNER,
+                CurrentActivityType.CONTENT_CREATOR,
+                CurrentActivityType.FAMILY_BUSINESS,
+            ]:
+                current_work = (
+                    self.work_experiences.filter(is_current=True)
+                    .order_by("-id")
+                    .first()
+                )
+
+                if current_work:
+                    work_complete = bool(
+                        current_work.work_type
+                        and current_work.industry
+                        and current_work.role_title
+                        and current_work.company_or_brand_name
+                        and current_work.experience_years is not None
+                        and current_work.skills_used
+                        and current_work.description
+                    )
+
+        student_activity = self.current_activity_type in [
+            CurrentActivityType.STUDENT,
+            CurrentActivityType.COLLEGE_STUDENT,
+        ]
+        work_activity = self.current_activity_type in [
+            CurrentActivityType.EMPLOYED,
+            CurrentActivityType.SELF_EMPLOYED,
+            CurrentActivityType.FREELANCER,
+            CurrentActivityType.BUSINESS_OWNER,
+            CurrentActivityType.CONTENT_CREATOR,
+            CurrentActivityType.FAMILY_BUSINESS,
+        ]
+        activity_detail_complete = (
+            subject_complete
+            if student_activity
+            else work_complete
+            if work_activity
+            else self.current_activity_type != CurrentActivityType.UNSURE
+        )
+
+        complete_values = profile_values + [academic_complete, activity_detail_complete]
 
         filled = sum(1 for value in complete_values if value not in [None, "", [], {}, False])
 

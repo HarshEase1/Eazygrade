@@ -69,29 +69,66 @@ def candidate_payload(profile):
     }
 
 
-def deepseek_is_configured():
-    return bool(getattr(settings, "DEEPSEEK_API_KEY", ""))
+def openai_is_configured():
+    return bool(getattr(settings, "OPENAI_API_KEY", ""))
 
 
-def call_deepseek_for_scores(profile, scored_items):
-    if not deepseek_is_configured():
+def call_openai_json(system_prompt, prompt, timeout=20):
+    body = json.dumps(
+        {
+            "model": getattr(settings, "OPENAI_MODEL", "gpt-4.1-mini"),
+            "temperature": 0.1,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(prompt, ensure_ascii=True),
+                },
+            ],
+        }
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        getattr(settings, "OPENAI_API_URL", "https://api.openai.com/v1/chat/completions"),
+        data=body,
+        headers={
+            "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+
+    content = payload["choices"][0]["message"]["content"].strip()
+    if content.startswith("```"):
+        content = content.strip("`")
+        content = content.replace("json\n", "", 1).strip()
+    return json.loads(content)
+
+
+def call_openai_for_scores(profile, scored_items):
+    if not openai_is_configured():
         return {}, {
-            "provider": "deepseek",
+            "provider": "openai",
             "enabled": False,
             "used_for_scoring": False,
             "max_weight": 10,
-            "message": "DEEPSEEK_API_KEY is not configured; LLM scoring was skipped.",
+            "message": "OPENAI_API_KEY is not configured; LLM scoring was skipped.",
         }
 
-    api_key = settings.DEEPSEEK_API_KEY
-    api_url = getattr(settings, "DEEPSEEK_API_URL", "https://api.deepseek.com/chat/completions")
-    model = getattr(settings, "DEEPSEEK_MODEL", "deepseek-chat")
+    model = getattr(settings, "OPENAI_MODEL", "gpt-4.1-mini")
     limited_items = list(scored_items[: min(len(scored_items), 25)])
 
     prompt = {
         "task": "Score each programme from 0 to 10 as an LLM judgment layer for candidate-programme fit.",
         "rules": [
             "Use only the provided candidate and programme data.",
+            "Do not invent programme names, fees, eligibility, placements, rankings, or recognition.",
             "0 means poor fit; 10 means excellent fit.",
             "Reward direct title/career/subject fit, realistic eligibility, mode/location fit, and clarity of path.",
             "Penalize insufficient data, vague/general programmes, weak mode/location fit, and risky eligibility.",
@@ -109,48 +146,21 @@ def call_deepseek_for_scores(profile, scored_items):
             ]
         },
     }
-    body = json.dumps(
-        {
-            "model": model,
-            "temperature": 0.1,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {
-                    "role": "system",
-                    "content": "You are a careful Indian higher-education recommendation evaluator.",
-                },
-                {
-                    "role": "user",
-                    "content": json.dumps(prompt, ensure_ascii=True),
-                },
-            ],
-        }
-    ).encode("utf-8")
-    request = urllib.request.Request(
-        api_url,
-        data=body,
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
 
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:
-            payload = json.loads(response.read().decode("utf-8"))
+        parsed = call_openai_json(
+            "You are a careful Indian higher-education recommendation evaluator. Return JSON only.",
+            prompt,
+        )
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
         return {}, {
-            "provider": "deepseek",
+            "provider": "openai",
             "enabled": True,
             "used_for_scoring": False,
             "max_weight": 10,
             "error": str(exc),
-            "message": "DeepSeek scoring failed; deterministic scoring was used.",
+            "message": "OpenAI scoring failed; deterministic scoring was used.",
         }
-
-    content = payload["choices"][0]["message"]["content"]
-    parsed = json.loads(content)
     score_map = {}
 
     for item in parsed.get("scores", []):
@@ -167,7 +177,7 @@ def call_deepseek_for_scores(profile, scored_items):
         }
 
     return score_map, {
-        "provider": "deepseek",
+        "provider": "openai",
         "enabled": True,
         "used_for_scoring": bool(score_map),
         "max_weight": 10,
@@ -189,9 +199,9 @@ def build_ai_style_explanation(profile, recommendations, llm_metadata=None):
     )
 
     if llm_metadata.get("used_for_scoring"):
-        summary += " DeepSeek added up to 10 extra fit points across the shortlisted programmes."
+        summary += " OpenAI added up to 10 extra fit points across the shortlisted programmes."
     else:
-        summary += " DeepSeek scoring was not used for this run."
+        summary += " OpenAI scoring was not used for this run."
 
     if top_items:
         first = top_items[0]
