@@ -328,6 +328,16 @@ def public_program_search(request):
             profile_message = "Profile context unavailable. Continuing with your query only."
 
     keyword_payload = extract_openai_keywords(query, profile=profile)
+    if keyword_payload.get("source") != "openai":
+        return Response(
+            {
+                "detail": "OpenAI is not working.",
+                "openai_working": False,
+                "keyword_source": keyword_payload.get("source"),
+                "error": keyword_payload.get("error") or keyword_payload.get("message"),
+            },
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
     search_keywords = keyword_payload.get("keywords", [])
     degree_type = normalize_for_matching(filters.get("degree_type"))
     mode = normalize_for_matching(filters.get("mode"))
