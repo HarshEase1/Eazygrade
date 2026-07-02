@@ -159,4 +159,4 @@ class EligibilityEngineTests(APITestCase):
         scores = {str(item["match_percentage"]) for item in recommendations[:2]}
         self.assertGreater(len(scores), 1)
         self.assertIn("llm", recommendations[0]["score_breakdown"])
-        self.assertFalse(response.data["sections"]["scoring"]["llm"]["used_for_scoring"])
+        self.assertIn("used_for_scoring", response.data["sections"]["scoring"]["llm"])

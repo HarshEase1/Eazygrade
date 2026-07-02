@@ -416,12 +416,7 @@ def extract_openai_keywords(query, profile=None):
     fallback_keywords = keyword_payload_from_context(context)
 
     if not openai_is_configured():
-        return {
-            "keywords": fallback_keywords,
-            "source": "deterministic",
-            "context": context,
-            "message": "OPENAI_API_KEY is not configured; deterministic keywords were used.",
-        }
+        raise ValueError("OPENAI_API_KEY is not configured.")
 
     prompt = {
         "task": "Extract concise Indian higher-education programme search keywords from a student query.",
@@ -453,14 +448,8 @@ def extract_openai_keywords(query, profile=None):
             "You extract search keywords for an Indian course recommendation database. Return JSON only.",
             prompt,
         )
-    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError, KeyError, ValueError) as exc:
-        return {
-            "keywords": fallback_keywords,
-            "source": "deterministic",
-            "context": context,
-            "error": str(exc),
-            "message": "OpenAI keyword extraction failed; deterministic keywords were used.",
-        }
+    except Exception as exc:
+        raise RuntimeError(f"OpenAI keyword extraction failed: {exc}") from exc
 
     raw_keywords = parsed.get("keywords", [])
     if not isinstance(raw_keywords, list):

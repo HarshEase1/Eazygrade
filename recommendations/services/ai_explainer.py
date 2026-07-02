@@ -113,13 +113,7 @@ def call_openai_json(system_prompt, prompt, timeout=20):
 
 def call_openai_for_scores(profile, scored_items):
     if not openai_is_configured():
-        return {}, {
-            "provider": "openai",
-            "enabled": False,
-            "used_for_scoring": False,
-            "max_weight": 10,
-            "message": "OPENAI_API_KEY is not configured; LLM scoring was skipped.",
-        }
+        raise ValueError("OPENAI_API_KEY is not configured.")
 
     model = getattr(settings, "OPENAI_MODEL", "gpt-4.1-mini")
     limited_items = list(scored_items[: min(len(scored_items), 25)])
@@ -152,15 +146,8 @@ def call_openai_for_scores(profile, scored_items):
             "You are a careful Indian higher-education recommendation evaluator. Return JSON only.",
             prompt,
         )
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, KeyError, ValueError) as exc:
-        return {}, {
-            "provider": "openai",
-            "enabled": True,
-            "used_for_scoring": False,
-            "max_weight": 10,
-            "error": str(exc),
-            "message": "OpenAI scoring failed; deterministic scoring was used.",
-        }
+    except Exception as exc:
+        raise RuntimeError(f"OpenAI scoring failed: {exc}") from exc
     score_map = {}
 
     for item in parsed.get("scores", []):

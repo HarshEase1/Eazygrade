@@ -327,14 +327,14 @@ def public_program_search(request):
         else:
             profile_message = "Profile context unavailable. Continuing with your query only."
 
-    keyword_payload = extract_openai_keywords(query, profile=profile)
-    if keyword_payload.get("source") != "openai":
+    try:
+        keyword_payload = extract_openai_keywords(query, profile=profile)
+    except Exception as exc:
         return Response(
             {
                 "detail": "OpenAI is not working.",
                 "openai_working": False,
-                "keyword_source": keyword_payload.get("source"),
-                "error": keyword_payload.get("error") or keyword_payload.get("message"),
+                "error": str(exc),
             },
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
