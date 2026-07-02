@@ -40,12 +40,19 @@ jobs:
         env:
           BACKEND_ENV_PRODUCTION: ${{ secrets.BACKEND_ENV_PRODUCTION }}
         run: |
-          if [ -n "$BACKEND_ENV_PRODUCTION" ]; then
-            printf '%s\n' "$BACKEND_ENV_PRODUCTION" > .env
+          if [ -z "$BACKEND_ENV_PRODUCTION" ]; then
+            echo "BACKEND_ENV_PRODUCTION secret is empty"
+            exit 1
           fi
 
+          printf '%s\n' "$BACKEND_ENV_PRODUCTION" > "$GITHUB_WORKSPACE/.env"
+          chmod 600 "$GITHUB_WORKSPACE/.env"
+
       - name: Validate Django project
-        run: python manage.py check --deploy
+        env:
+          PRODUCTION_ENV_FILE: ${{ github.workspace }}/.env
+        run: |
+          python manage.py check --deploy
 
       - name: Package release
         run: |
@@ -96,6 +103,7 @@ jobs:
 
           mkdir -p "$RELEASES_PATH"
           mkdir -p "$LOGS_PATH"
+
           rm -rf "$RELEASE_PATH"
           mkdir -p "$RELEASE_PATH"
 
@@ -106,20 +114,29 @@ jobs:
           SERVICE_STOPPED=1
 
           cd "$RELEASE_PATH"
+
           export PIP_NO_CACHE_DIR=1
+          export PRODUCTION_ENV_FILE="$RELEASE_PATH/.env"
+
           rm -rf "$HOME/.cache/pip" "$RELEASE_PATH/.venv"
+
           "$SERVER_PYTHON_BIN" -m venv .venv
           . .venv/bin/activate
+
           python -m pip install --no-cache-dir --upgrade pip
           python -m pip install --no-cache-dir -r requirements.txt
+
+          python manage.py check --deploy
           python manage.py migrate --noinput
 
           ln -sfn "$RELEASE_PATH" "$DEPLOY_PATH/current-next"
           mv -Tf "$DEPLOY_PATH/current-next" "$DEPLOY_PATH/current"
 
           sudo systemctl start "$SERVICE_NAME"
+
           sleep 5
           systemctl is-active --quiet "$SERVICE_NAME"
+
           SERVICE_STOPPED=0
 
           cd "$RELEASES_PATH"

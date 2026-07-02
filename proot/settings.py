@@ -20,18 +20,37 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 def load_env_file(path):
-    if not path.exists():
+    path = Path(path).expanduser()
+
+    try:
+        if not path.is_file():
+            return
+    except PermissionError:
         return
 
-    for line in path.read_text().splitlines():
-        line = line.strip()
+    try:
+        for line in path.read_text().splitlines():
+            line = line.strip()
 
-        if not line or line.startswith('#') or '=' not in line:
-            continue
+            if not line or line.startswith("#") or "=" not in line:
+                continue
 
-        key, value = line.split('=', 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+            key, value = line.split("=", 1)
+            os.environ.setdefault(
+                key.strip(),
+                value.strip().strip('"').strip("'"),
+            )
+    except PermissionError:
+        return
 
+
+PRODUCTION_ENV_FILE = Path(
+    os.environ.get("PRODUCTION_ENV_FILE", BASE_DIR / ".env")
+)
+
+load_env_file(PRODUCTION_ENV_FILE)
+load_env_file(BASE_DIR / ".env")
+load_env_file(BASE_DIR.parent / ".env")
 
 def extract_google_client_id(payload):
     return (
@@ -78,10 +97,6 @@ def load_google_client_id_from_json():
 
 
 PRODUCTION_ENV_FILE = Path(os.environ.get('PRODUCTION_ENV_FILE', '/root/conf/.env'))
-
-load_env_file(PRODUCTION_ENV_FILE)
-load_env_file(BASE_DIR / '.env')
-load_env_file(BASE_DIR.parent / '.env')
 
 
 # Quick-start development settings - unsuitable for production
