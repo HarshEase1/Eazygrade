@@ -344,7 +344,7 @@ def public_program_search(request):
     provider = normalize_for_matching(filters.get("provider"))
 
     ugc_queryset = UGCDEBProgramme.objects.filter(is_active=True)
-    vendor_queryset = VendorCourse.objects.select_related("vendor").all()
+    vendor_queryset = VendorCourse.objects.select_related("vendor").none()
     demo_queryset = DemoProgramme.objects.filter(is_active=True)
 
     if degree_type:
